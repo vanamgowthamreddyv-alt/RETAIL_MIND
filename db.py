@@ -24,8 +24,7 @@ if database_url:
     )
 else:
     # Fallback to Render Database if DATABASE_URL is not provided
-    # Fallback to Render Database if DATABASE_URL is not provided
-        db_host = os.getenv("DB_HOST", "localhost")
+    db_host = os.getenv("DB_HOST", "localhost")
     db_port = int(os.getenv("DB_PORT", "5432"))
     db_user = os.getenv("DB_USER", "postgres")
     db_password = os.getenv("DB_PASSWORD", "")
@@ -60,6 +59,7 @@ def get_db():
         yield db
     finally:
         db.close()
+
 
 
 
