@@ -1,0 +1,146 @@
+# ==========================================
+# Docker Compose for RAG_APP Stack
+# Services: RAG API, PostgreSQL, Redis, Ollama
+# ==========================================
+
+version: '3.8'
+
+services:
+  # ==========================================
+  # PostgreSQL Database
+  # ==========================================
+  postgres:
+    image: postgres:15-alpine
+    container_name: rag_postgres
+    environment:
+      POSTGRES_USER: ${DB_USER:-postgres}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-Gowtham@2004}
+      POSTGRES_DB: ${DB_NAME:-Data_Analytics}
+      POSTGRES_HOST_AUTH_METHOD: md5
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./init-db.sql:/docker-entrypoint-initdb.d/init.sql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - rag_network
+
+  # ==========================================
+  # Redis Cache
+  # ==========================================
+  redis:
+    image: redis:7-alpine
+    container_name: rag_redis
+    ports:
+      - "6379:6379"
+    command: redis-server --appendonly yes
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - rag_network
+
+  # ==========================================
+  # Ollama LLM Service
+  # ==========================================
+  ollama:
+    image: ollama/ollama:latest
+    container_name: rag_ollama
+    ports:
+      - "11434:11434"
+    environment:
+      - OLLAMA_HOST=0.0.0.0:11434
+    volumes:
+      - ollama_data:/root/.ollama
+    # Removed healthcheck because the official image does not include `curl`.
+    # Leaving the service without a container-level healthcheck prevents false
+    # 'unhealthy' status due to missing tooling in the image. If you want a
+    # healthcheck, add a small wrapper image that includes curl/wget, or
+    # implement a custom check that uses a binary present in the image.
+    networks:
+      - rag_network
+    # Optional: Pre-pull models on startup
+    # command: bash -c "ollama pull phi3:mini && ollama serve"
+
+  # ==========================================
+  # RAG FastAPI Application
+  # ==========================================
+  rag_api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: rag_api
+    environment:
+      # Database Configuration
+      DB_HOST: postgres
+      DB_USER: ${DB_USER:-postgres}
+      DB_PASSWORD: ${DB_PASSWORD:-Gowtham@2004}
+      DB_NAME: ${DB_NAME:-Data_Analytics}
+      
+      # Redis Configuration
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      REDIS_DB: 0
+      
+      # Ollama Configuration
+      OLLAMA_BASE_URL: http://ollama:11434
+      
+      # JWT Secrets
+      SECRET_KEY: ${SECRET_KEY:-your-secret-key-change-in-production}
+      ALGORITHM: ${ALGORITHM:-HS256}
+      ACCESS_TOKEN_EXPIRE_MINUTES: ${ACCESS_TOKEN_EXPIRE_MINUTES:-30}
+      
+      # Application Settings
+      DEBUG: ${DEBUG:-False}
+      PYTHONUNBUFFERED: 1
+    
+    ports:
+      - "8000:8000"
+    
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      ollama:
+        condition: service_started
+    
+    volumes:
+      - .:/app
+      - ./RAG_Document_Store:/app/RAG_Document_Store
+    
+    networks:
+      - rag_network
+    
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/docs"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+# ==========================================
+# Networks
+# ==========================================
+networks:
+  rag_network:
+    driver: bridge
+
+# ==========================================
+# Volumes
+# ==========================================
+volumes:
+  postgres_data:
+    driver: local
+  redis_data:
+    driver: local
+  ollama_data:
+    driver: local
